@@ -46,6 +46,23 @@ function TherapistsManagementPage() {
     
     // Set up interval to refresh data
     const interval = setInterval(loadTherapists, 5000);
+    
+    // Listen for approval/rejection events from Admin Dashboard
+    const handleTherapistApproved = (event: any) => {
+      const { therapistId } = event.detail;
+      loadTherapists(); // Refresh the therapists list
+    };
+    
+    const handleTherapistRejected = (event: any) => {
+      const { therapistId } = event.detail;
+      loadTherapists(); // Refresh the therapists list
+    };
+    
+    window.addEventListener('mindcare-therapist-approved', handleTherapistApproved);
+    window.addEventListener('mindcare-therapist-rejected', handleTherapistRejected);
+    
+      window.removeEventListener('mindcare-therapist-approved', handleTherapistApproved);
+      window.removeEventListener('mindcare-therapist-rejected', handleTherapistRejected);
     return () => clearInterval(interval);
   }, []);
 
@@ -90,27 +107,29 @@ function TherapistsManagementPage() {
     // Add registered therapists
     therapistUsers.forEach((therapistUser: any) => {
       const service = approvedServices.find((s: any) => s.therapistId === therapistUser.id);
+      const pendingService = therapistServices.find((s: any) => s.therapistId === therapistUser.id && s.status === 'pending');
+      const rejectedService = therapistServices.find((s: any) => s.therapistId === therapistUser.id && s.status === 'rejected');
       
       const therapist: Therapist = {
         id: therapistUser.id,
         name: therapistUser.name,
         email: therapistUser.email,
         phone: therapistUser.phone || '+1 (555) 000-0000',
-        specialization: service?.specialization || [therapistUser.specialization || 'General Therapy'],
-        experience: service?.experience || '5 years',
+        specialization: (service || pendingService || rejectedService)?.specialization || [therapistUser.specialization || 'General Therapy'],
+        experience: (service || pendingService || rejectedService)?.experience || '5 years',
         licenseNumber: therapistUser.licenseNumber || 'LIC000000',
-        hourlyRate: service?.chargesPerSession || therapistUser.hourlyRate || 100,
+        hourlyRate: (service || pendingService || rejectedService)?.chargesPerSession || therapistUser.hourlyRate || 100,
         rating: 4.5,
         reviewCount: 0,
         patientsCount: 0,
-        status: service ? 'active' : 'pending',
+        status: service ? 'active' : pendingService ? 'pending' : rejectedService ? 'inactive' : 'pending',
         verified: !!service,
         joinDate: therapistUser.joinDate || new Date().toISOString().split('T')[0],
         lastLogin: new Date().toISOString().split('T')[0],
-        bio: service?.bio || 'Professional therapist committed to helping patients achieve mental wellness.',
-        languages: service?.languages || ['English'],
-        profilePicture: service?.profilePicture,
-        qualification: service?.qualification || therapistUser.qualification
+        bio: (service || pendingService || rejectedService)?.bio || 'Professional therapist committed to helping patients achieve mental wellness.',
+        languages: (service || pendingService || rejectedService)?.languages || ['English'],
+        profilePicture: (service || pendingService || rejectedService)?.profilePicture,
+        qualification: (service || pendingService || rejectedService)?.qualification || therapistUser.qualification
       };
       
       combinedTherapists.push(therapist);
@@ -131,19 +150,60 @@ function TherapistsManagementPage() {
 
   const handleTherapistAction = (therapistId: string, action: string) => {
     if (action === 'approved') {
-      // Update therapist status
-      const updatedTherapists = therapists.map(t => 
-        t.id === therapistId ? { ...t, status: 'active' as const, verified: true } : t
+      // Update therapist services status first
+      const therapistServices = JSON.parse(localStorage.getItem('mindcare_therapist_services') || '[]');
+      const updatedServices = therapistServices.map((s: any) => 
+        s.therapistId === therapistId ? { ...s, status: 'approved', approvedAt: new Date().toISOString() } : s
       );
-      setTherapists(updatedTherapists);
+      localStorage.setItem('mindcare_therapist_services', JSON.stringify(updatedServices));
       
-      // Update registered users if it's a registered therapist
+      // Update registered users
       const registeredUsers = JSON.parse(localStorage.getItem('mindcare_registered_users') || '[]');
       const updatedUsers = registeredUsers.map((u: any) => 
         u.id === therapistId ? { ...u, status: 'approved', verified: true } : u
       );
       localStorage.setItem('mindcare_registered_users', JSON.stringify(updatedUsers));
+      
+      // Add to available therapists for booking
+      const serviceToApprove = therapistServices.find((s: any) => s.therapistId === therapistId);
+      if (serviceToApprove) {
+        const availableTherapists = JSON.parse(localStorage.getItem('mindcare_therapists') || '[]');
+        const therapistForBooking = {
+          id: serviceToApprove.therapistId,
+          name: serviceToApprove.therapistName,
+          title: serviceToApprove.qualification,
+          specialization: serviceToApprove.specialization,
+          experience: parseInt(serviceToApprove.experience.split(' ')[0]) || 0,
+          rating: 4.8,
+          reviewCount: 0,
+          hourlyRate: serviceToApprove.chargesPerSession,
+          location: 'Online',
+          avatar: serviceToApprove.profilePicture || 'https://images.pexels.com/photos/5327580/pexels-photo-5327580.jpeg?auto=compress&cs=tinysrgb&w=150',
+          verified: true,
+          nextAvailable: 'Today, 2:00 PM',
+          bio: serviceToApprove.bio,
+          languages: serviceToApprove.languages
+        };
+        
+        const updatedAvailableTherapists = availableTherapists.filter((t: any) => t.id !== serviceToApprove.therapistId);
+        updatedAvailableTherapists.push(therapistForBooking);
+        localStorage.setItem('mindcare_therapists', JSON.stringify(updatedAvailableTherapists));
+      }
+      
+      // Update local therapist state
+      const updatedTherapists = therapists.map(t => 
+        t.id === therapistId ? { ...t, status: 'active' as const, verified: true } : t
+      );
+      setTherapists(updatedTherapists);
+      
     } else if (action === 'suspended') {
+      // Update therapist services status
+      const therapistServices = JSON.parse(localStorage.getItem('mindcare_therapist_services') || '[]');
+      const updatedServices = therapistServices.map((s: any) => 
+        s.therapistId === therapistId ? { ...s, status: 'suspended' } : s
+      );
+      localStorage.setItem('mindcare_therapist_services', JSON.stringify(updatedServices));
+      
       const updatedTherapists = therapists.map(t => 
         t.id === therapistId ? { ...t, status: 'suspended' as const } : t
       );
@@ -161,6 +221,11 @@ function TherapistsManagementPage() {
       const updatedAvailableTherapists = availableTherapists.filter((t: any) => t.id !== therapistId);
       localStorage.setItem('mindcare_therapists', JSON.stringify(updatedAvailableTherapists));
     } else if (action === 'deleted') {
+      // Remove from therapist services
+      const therapistServices = JSON.parse(localStorage.getItem('mindcare_therapist_services') || '[]');
+      const updatedServices = therapistServices.filter((s: any) => s.therapistId !== therapistId);
+      localStorage.setItem('mindcare_therapist_services', JSON.stringify(updatedServices));
+      
       const updatedTherapists = therapists.filter(t => t.id !== therapistId);
       setTherapists(updatedTherapists);
       
@@ -169,15 +234,30 @@ function TherapistsManagementPage() {
       const updatedUsers = registeredUsers.filter((u: any) => u.id !== therapistId);
       localStorage.setItem('mindcare_registered_users', JSON.stringify(updatedUsers));
       
-      // Remove therapist services
-      const therapistServices = JSON.parse(localStorage.getItem('mindcare_therapist_services') || '[]');
-      const updatedServices = therapistServices.filter((s: any) => s.therapistId !== therapistId);
-      localStorage.setItem('mindcare_therapist_services', JSON.stringify(updatedServices));
-      
       // Remove from available therapists for booking
       const availableTherapists = JSON.parse(localStorage.getItem('mindcare_therapists') || '[]');
       const updatedAvailableTherapists = availableTherapists.filter((t: any) => t.id !== therapistId);
       localStorage.setItem('mindcare_therapists', JSON.stringify(updatedAvailableTherapists));
+    } else if (action === 'rejected') {
+      // Update therapist services status to rejected
+      const therapistServices = JSON.parse(localStorage.getItem('mindcare_therapist_services') || '[]');
+      const updatedServices = therapistServices.map((s: any) => 
+        s.therapistId === therapistId ? { ...s, status: 'rejected' } : s
+      );
+      localStorage.setItem('mindcare_therapist_services', JSON.stringify(updatedServices));
+      
+      // Update registered users
+      const registeredUsers = JSON.parse(localStorage.getItem('mindcare_registered_users') || '[]');
+      const updatedUsers = registeredUsers.map((u: any) => 
+        u.id === therapistId ? { ...u, status: 'rejected' } : u
+      );
+      localStorage.setItem('mindcare_registered_users', JSON.stringify(updatedUsers));
+      
+      // Update local therapist state
+      const updatedTherapists = therapists.map(t => 
+        t.id === therapistId ? { ...t, status: 'inactive' as const, verified: false } : t
+      );
+      setTherapists(updatedTherapists);
     }
     
     toast.success(`Therapist ${action} successfully`);
@@ -505,6 +585,15 @@ function TherapistsManagementPage() {
                     >
                       <AlertTriangle className="w-3 h-3" />
                       <span>Suspend</span>
+                    </button>
+                  )}
+                  {therapist.status === 'suspended' && (
+                    <button
+                      onClick={() => handleTherapistAction(therapist.id, 'approved')}
+                      className="flex items-center space-x-1 px-3 py-1 bg-green-100 text-green-700 rounded-lg hover:bg-green-200 transition-colors text-sm"
+                    >
+                      <CheckCircle className="w-3 h-3" />
+                      <span>Reactivate</span>
                     </button>
                   )}
                 </div>

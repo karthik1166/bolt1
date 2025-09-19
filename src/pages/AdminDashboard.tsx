@@ -143,20 +143,45 @@ function AdminDashboard() {
       updatedAvailableTherapists.push(therapistForBooking);
       localStorage.setItem('mindcare_therapists', JSON.stringify(updatedAvailableTherapists));
       
+      // Refresh pending services to remove the approved one
       setPendingServices(prev => prev.filter(s => s.id !== id));
       
       toast.success(`${serviceToApprove.therapistName}'s service has been approved!`);
+      
+      // Trigger a refresh of the therapists page data if it's loaded
+      window.dispatchEvent(new CustomEvent('mindcare-therapist-approved', { detail: { therapistId: serviceToApprove.therapistId } }));
     }
   };
 
   const handleRejectTherapist = (id: string) => {
     const services = JSON.parse(localStorage.getItem('mindcare_therapist_services') || '[]');
-    const updatedServices = services.map((s: any) => 
-      s.id === id ? { ...s, status: 'rejected' } : s
-    );
-    localStorage.setItem('mindcare_therapist_services', JSON.stringify(updatedServices));
+    const registeredUsers = JSON.parse(localStorage.getItem('mindcare_registered_users') || '[]');
+    
+    const serviceToReject = services.find((s: any) => s.id === id);
+    if (serviceToReject) {
+      // Update service status
+      const updatedServices = services.map((s: any) => 
+        s.id === id ? { ...s, status: 'rejected' } : s
+      );
+      localStorage.setItem('mindcare_therapist_services', JSON.stringify(updatedServices));
+      
+      // Update the therapist's status in registered users
+      const updatedUsers = registeredUsers.map((u: any) => 
+        u.id === serviceToReject.therapistId ? { ...u, status: 'rejected' } : u
+      );
+      localStorage.setItem('mindcare_registered_users', JSON.stringify(updatedUsers));
+      
+      // Remove from available therapists for booking if they were there
+      const availableTherapists = JSON.parse(localStorage.getItem('mindcare_therapists') || '[]');
+      const updatedAvailableTherapists = availableTherapists.filter((t: any) => t.id !== serviceToReject.therapistId);
+      localStorage.setItem('mindcare_therapists', JSON.stringify(updatedAvailableTherapists));
+    }
+    
     setPendingServices(prev => prev.filter(s => s.id !== id));
-    toast.success('Therapist service rejected.');
+    toast.success(`${serviceToReject?.therapistName || 'Therapist'}'s service has been rejected.`);
+    
+    // Trigger a refresh of the therapists page data if it's loaded
+    window.dispatchEvent(new CustomEvent('mindcare-therapist-rejected', { detail: { therapistId: serviceToReject?.therapistId } }));
   };
 
   return (
