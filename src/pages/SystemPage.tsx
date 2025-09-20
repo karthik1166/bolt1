@@ -8,17 +8,44 @@ import {
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
 import toast from 'react-hot-toast';
+import { getAnalytics, updateAnalyticsFromCurrentData } from '../utils/analyticsManager';
 
 function SystemPage() {
   const { user } = useAuth();
   const { theme } = useTheme();
   const [selectedTab, setSelectedTab] = useState('overview');
+  const [analytics, setAnalytics] = useState<any>(null);
+
+  useEffect(() => {
+    // Load analytics data
+    const currentAnalytics = updateAnalyticsFromCurrentData();
+    setAnalytics(currentAnalytics);
+    
+    // Set up interval to refresh data
+    const interval = setInterval(() => {
+      const updatedAnalytics = updateAnalyticsFromCurrentData();
+      setAnalytics(updatedAnalytics);
+    }, 10000);
+    
+    // Listen for analytics updates
+    const handleAnalyticsUpdate = () => {
+      const updatedAnalytics = updateAnalyticsFromCurrentData();
+      setAnalytics(updatedAnalytics);
+    };
+    
+    window.addEventListener('mindcare-analytics-updated', handleAnalyticsUpdate);
+    
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('mindcare-analytics-updated', handleAnalyticsUpdate);
+    };
+  }, []);
 
   const systemHealth = {
     status: 'healthy',
     uptime: '99.8%',
     responseTime: '120ms',
-    activeUsers: 2453,
+    activeUsers: analytics?.users.activeUsers || 0,
     serverLoad: 45,
     memoryUsage: 68,
     diskUsage: 34

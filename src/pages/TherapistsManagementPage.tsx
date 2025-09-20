@@ -8,6 +8,7 @@ import {
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
 import toast from 'react-hot-toast';
+import { trackTherapistApproval } from '../utils/analyticsManager';
 
 interface Therapist {
   id: string;
@@ -152,6 +153,7 @@ function TherapistsManagementPage() {
     if (action === 'approved') {
       // Update therapist services status first
       const therapistServices = JSON.parse(localStorage.getItem('mindcare_therapist_services') || '[]');
+      const serviceToApprove = therapistServices.find((s: any) => s.therapistId === therapistId);
       const updatedServices = therapistServices.map((s: any) => 
         s.therapistId === therapistId ? { ...s, status: 'approved', approvedAt: new Date().toISOString() } : s
       );
@@ -165,7 +167,6 @@ function TherapistsManagementPage() {
       localStorage.setItem('mindcare_registered_users', JSON.stringify(updatedUsers));
       
       // Add to available therapists for booking
-      const serviceToApprove = therapistServices.find((s: any) => s.therapistId === therapistId);
       if (serviceToApprove) {
         const availableTherapists = JSON.parse(localStorage.getItem('mindcare_therapists') || '[]');
         const therapistForBooking = {
@@ -188,6 +189,9 @@ function TherapistsManagementPage() {
         const updatedAvailableTherapists = availableTherapists.filter((t: any) => t.id !== serviceToApprove.therapistId);
         updatedAvailableTherapists.push(therapistForBooking);
         localStorage.setItem('mindcare_therapists', JSON.stringify(updatedAvailableTherapists));
+        
+        // Track the approval in analytics
+        trackTherapistApproval(serviceToApprove);
       }
       
       // Update local therapist state

@@ -10,6 +10,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
+import { trackPayment, trackSessionStart } from '../utils/analyticsManager';
 
 interface Therapist {
   id: string;
@@ -238,6 +239,9 @@ function BookingPage() {
     existingBookings.push(booking);
     localStorage.setItem('mindcare_bookings', JSON.stringify(existingBookings));
 
+    // Track session booking
+    trackSessionStart(booking);
+
     toast.success(`Session booked with ${selectedTherapist.name}!`);
     setShowBookingModal(false);
     setShowPaymentModal(true);
@@ -261,6 +265,14 @@ function BookingPage() {
       return booking;
     });
     localStorage.setItem('mindcare_bookings', JSON.stringify(updatedBookings));
+
+    // Track payment
+    trackPayment({
+      amount: `$${selectedTherapist.hourlyRate}`,
+      patientId: user?.id,
+      therapistId: selectedTherapist.id,
+      sessionType: 'video'
+    });
 
     toast.success('Payment successful! Your session is confirmed.');
     setShowPaymentModal(false);

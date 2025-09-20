@@ -9,6 +9,7 @@ import {
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
 import toast from 'react-hot-toast';
+import { trackSessionComplete } from '../utils/analyticsManager';
 
 interface Appointment {
   id: string;
@@ -97,6 +98,7 @@ function AppointmentsPage() {
   const handleStatusChange = (appointmentId: string, newStatus: string) => {
     // Update appointment status in localStorage
     const allBookings = JSON.parse(localStorage.getItem('mindcare_bookings') || '[]');
+    const appointmentToUpdate = allBookings.find((booking: any) => booking.id === appointmentId);
     const updatedBookings = allBookings.map((booking: any) => 
       booking.id === appointmentId ? { ...booking, status: newStatus } : booking
     );
@@ -106,6 +108,17 @@ function AppointmentsPage() {
     setAppointments(prev => prev.map(apt => 
       apt.id === appointmentId ? { ...apt, status: newStatus as any } : apt
     ));
+    
+    // Track session completion in analytics
+    if (newStatus === 'completed' && appointmentToUpdate) {
+      trackSessionComplete({
+        patientId: appointmentToUpdate.patientId,
+        therapistId: appointmentToUpdate.therapistId,
+        sessionType: appointmentToUpdate.sessionType || 'video',
+        duration: 50, // Default session duration
+        rating: 5 // Default rating
+      });
+    }
     
     toast.success(`Appointment ${newStatus}`);
   };

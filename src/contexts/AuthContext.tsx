@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import toast from 'react-hot-toast';
+import { trackUserRegistration, trackTherapistRegistration } from '../utils/analyticsManager';
 
 interface User {
   id: string;
@@ -182,6 +183,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       setUser(newUser);
       localStorage.setItem('mindcare_user', JSON.stringify(newUser));
+      
+      // Track user registration in analytics
+      trackUserRegistration(newUser);
+      
+      // If therapist, also track therapist registration
+      if (userData.role === 'therapist') {
+        trackTherapistRegistration({
+          therapistId: newUser.id,
+          therapistName: newUser.name,
+          specialization: [userData.specialization || 'General Therapy']
+        });
+      }
+      
       toast.success('Registration successful!');
       return true;
     } catch (error) {

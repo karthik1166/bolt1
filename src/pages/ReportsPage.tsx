@@ -12,23 +12,53 @@ import {
 } from 'recharts';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
+import { getAnalytics, updateAnalyticsFromCurrentData, generateTimeSeriesData } from '../utils/analyticsManager';
 
 function ReportsPage() {
   const { user } = useAuth();
   const { theme } = useTheme();
   const [selectedPeriod, setSelectedPeriod] = useState('month');
   const [selectedReport, setSelectedReport] = useState('overview');
+  const [analytics, setAnalytics] = useState<any>(null);
+  const [timeSeriesData, setTimeSeriesData] = useState<any[]>([]);
 
-  // Mock data for charts
-  const sessionData = [
-    { month: 'Jan', sessions: 45, revenue: 5400 },
-    { month: 'Feb', sessions: 52, revenue: 6240 },
-    { month: 'Mar', sessions: 48, revenue: 5760 },
-    { month: 'Apr', sessions: 61, revenue: 7320 },
-    { month: 'May', sessions: 55, revenue: 6600 },
-    { month: 'Jun', sessions: 67, revenue: 8040 }
-  ];
+  useEffect(() => {
+    // Load analytics data
+    const currentAnalytics = updateAnalyticsFromCurrentData();
+    setAnalytics(currentAnalytics);
+    
+    // Generate time series data
+    const timeData = generateTimeSeriesData();
+    setTimeSeriesData(timeData);
+    
+    // Set up interval to refresh data
+    const interval = setInterval(() => {
+      const updatedAnalytics = updateAnalyticsFromCurrentData();
+      setAnalytics(updatedAnalytics);
+      setTimeSeriesData(generateTimeSeriesData());
+    }, 10000);
+    
+    // Listen for analytics updates
+    const handleAnalyticsUpdate = () => {
+      const updatedAnalytics = updateAnalyticsFromCurrentData();
+      setAnalytics(updatedAnalytics);
+      setTimeSeriesData(generateTimeSeriesData());
+    };
+    
+    window.addEventListener('mindcare-analytics-updated', handleAnalyticsUpdate);
+    
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('mindcare-analytics-updated', handleAnalyticsUpdate);
+    };
+  }, []);
 
+  // Generate session data from time series
+  const sessionData = timeSeriesData.slice(-6).map((data, index) => ({
+    month: new Date(data.date).toLocaleDateString('en-US', { month: 'short' }),
+    sessions: data.sessions,
+    revenue: data.revenue
+  }));
   const patientProgress = [
     { name: 'Excellent Progress', value: 35, color: '#10B981' },
     { name: 'Good Progress', value: 40, color: '#3B82F6' },
@@ -37,11 +67,11 @@ function ReportsPage() {
   ];
 
   const therapyTypes = [
-    { type: 'CBT', sessions: 45, percentage: 35 },
-    { type: 'EMDR', sessions: 28, percentage: 22 },
-    { type: 'Family Therapy', sessions: 25, percentage: 19 },
-    { type: 'Group Therapy', sessions: 18, percentage: 14 },
-    { type: 'Other', sessions: 13, percentage: 10 }
+    { type: 'CBT', sessions: Math.floor((analytics?.sessions.totalSessions || 0) * 0.35), percentage: 35 },
+    { type: 'EMDR', sessions: Math.floor((analytics?.sessions.totalSessions || 0) * 0.22), percentage: 22 },
+    { type: 'Family Therapy', sessions: Math.floor((analytics?.sessions.totalSessions || 0) * 0.19), percentage: 19 },
+    { type: 'Group Therapy', sessions: Math.floor((analytics?.sessions.totalSessions || 0) * 0.14), percentage: 14 },
+    { type: 'Other', sessions: Math.floor((analytics?.sessions.totalSessions || 0) * 0.10), percentage: 10 }
   ];
 
   const reports = [
@@ -75,36 +105,36 @@ function ReportsPage() {
     }
   ];
 
-  const stats = [
+  const stats = analytics ? [
     {
       title: 'Total Sessions',
-      value: '328',
-      change: '+12% from last month',
+      value: analytics.sessions.totalSessions.toString(),
+      change: `${analytics.sessions.completedSessions} completed`,
       icon: Clock,
       color: 'from-blue-500 to-cyan-500'
     },
     {
-      title: 'Active Patients',
-      value: '24',
-      change: '+3 new this month',
+      title: 'Total Patients',
+      value: (analytics.users.totalUsers - analytics.therapists.totalTherapists).toString(),
+      change: `${analytics.users.newUsersThisMonth} new this month`,
       icon: Users,
       color: 'from-green-500 to-teal-500'
     },
     {
       title: 'Monthly Revenue',
-      value: '$8,040',
-      change: '+18% from last month',
+      value: `$${analytics.revenue.monthlyRevenue.toLocaleString()}`,
+      change: `+${analytics.revenue.revenueGrowthRate}% from last month`,
       icon: DollarSign,
       color: 'from-purple-500 to-pink-500'
     },
     {
-      title: 'Success Rate',
-      value: '87%',
-      change: '+5% improvement',
+      title: 'Completion Rate',
+      value: `${analytics.sessions.sessionCompletionRate.toFixed(1)}%`,
+      change: 'Session completion',
       icon: TrendingUp,
       color: 'from-orange-500 to-red-500'
     }
-  ];
+  ] : [];
 
   return (
     <div className={`h-screen flex flex-col ${

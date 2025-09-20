@@ -8,6 +8,10 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
+import { 
+  getAnalytics, updateAnalyticsFromCurrentData, trackTherapistApproval,
+  getRecentActivity, generateTimeSeriesData
+} from '../utils/analyticsManager';
 
 function AdminDashboard() {
   const { user } = useAuth();
@@ -16,39 +20,17 @@ function AdminDashboard() {
   const [pendingServices, setPendingServices] = useState<any[]>([]);
   const [selectedTab, setSelectedTab] = useState('overview');
   const [searchTerm, setSearchTerm] = useState('');
-
-  const stats = [
-    {
-      title: 'Total Users',
-      value: '2,847',
-      change: '+12% from last month',
-      icon: Users,
-      color: 'from-blue-500 to-cyan-500'
-    },
-    {
-      title: 'Active Therapists',
-      value: '156',
-      change: '+8 pending approval',
-      icon: UserCheck,
-      color: 'from-green-500 to-teal-500'
-    },
-    {
-      title: 'Platform Revenue',
-      value: '$47,320',
-      change: '+18% from last month',
-      icon: DollarSign,
-      color: 'from-purple-500 to-pink-500'
-    },
-    {
-      title: 'System Health',
-      value: '99.8%',
-      change: 'Uptime this month',
-      icon: Shield,
-      color: 'from-orange-500 to-red-500'
-    }
-  ];
+  const [analytics, setAnalytics] = useState<any>(null);
+  const [recentActivity, setRecentActivity] = useState<any[]>([]);
 
   useEffect(() => {
+    // Load initial analytics data
+    const initialAnalytics = updateAnalyticsFromCurrentData();
+    setAnalytics(initialAnalytics);
+    
+    // Load recent activity
+    setRecentActivity(getRecentActivity());
+    
     // Load pending services from localStorage
     const loadPendingServices = () => {
       const services = JSON.parse(localStorage.getItem('mindcare_therapist_services') || '[]');
@@ -58,41 +40,59 @@ function AdminDashboard() {
     
     loadPendingServices();
     
-    // Set up interval to refresh pending services
-    const interval = setInterval(loadPendingServices, 5000);
-    return () => clearInterval(interval);
+    // Set up interval to refresh data
+    const interval = setInterval(() => {
+      loadPendingServices();
+      const updatedAnalytics = updateAnalyticsFromCurrentData();
+      setAnalytics(updatedAnalytics);
+      setRecentActivity(getRecentActivity());
+    }, 5000);
+    
+    // Listen for analytics updates
+    const handleAnalyticsUpdate = () => {
+      const updatedAnalytics = updateAnalyticsFromCurrentData();
+      setAnalytics(updatedAnalytics);
+      setRecentActivity(getRecentActivity());
+    };
+    
+    window.addEventListener('mindcare-analytics-updated', handleAnalyticsUpdate);
+    
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('mindcare-analytics-updated', handleAnalyticsUpdate);
+    };
   }, []);
 
-  const recentActivities = [
+  const stats = analytics ? [
     {
-      id: 1,
-      type: 'user_registration',
-      description: 'New patient registered: John Doe',
-      timestamp: '5 minutes ago',
-      icon: Users
+      title: 'Total Users',
+      value: analytics.users.totalUsers.toLocaleString(),
+      change: `+${analytics.users.userGrowthRate}% from last month`,
+      icon: Users,
+      color: 'from-blue-500 to-cyan-500'
     },
     {
-      id: 2,
-      type: 'therapist_approved',
-      description: 'Therapist approved: Dr. Lisa Brown',
-      timestamp: '1 hour ago',
-      icon: CheckCircle
+      title: 'Active Therapists',
+      value: analytics.therapists.activeTherapists.toString(),
+      change: `${analytics.therapists.pendingApprovals} pending approval`,
+      icon: UserCheck,
+      color: 'from-green-500 to-teal-500'
     },
     {
-      id: 3,
-      type: 'payment_processed',
-      description: 'Payment processed: $120 session fee',
-      timestamp: '2 hours ago',
-      icon: DollarSign
+      title: 'Platform Revenue',
+      value: `$${analytics.revenue.totalRevenue.toLocaleString()}`,
+      change: `+${analytics.revenue.revenueGrowthRate}% from last month`,
+      icon: DollarSign,
+      color: 'from-purple-500 to-pink-500'
     },
     {
-      id: 4,
-      type: 'system_alert',
-      description: 'High server load detected and resolved',
-      timestamp: '4 hours ago',
-      icon: AlertTriangle
+      title: 'Total Sessions',
+      value: analytics.sessions.totalSessions.toString(),
+      change: `${analytics.sessions.sessionCompletionRate.toFixed(1)}% completion rate`,
+      icon: BarChart3,
+      color: 'from-orange-500 to-red-500'
     }
-  ];
+  ] : [];
 
   const tabs = [
     { id: 'overview', label: 'Overview', icon: BarChart3 },
@@ -143,6 +143,9 @@ function AdminDashboard() {
       updatedAvailableTherapists.push(therapistForBooking);
       localStorage.setItem('mindcare_therapists', JSON.stringify(updatedAvailableTherapists));
       
+      // Track the approval in analytics
+      trackTherapistApproval(serviceToApprove);
+      
       // Refresh pending services to remove the approved one
       setPendingServices(prev => prev.filter(s => s.id !== id));
       
@@ -182,6 +185,18 @@ function AdminDashboard() {
     
     // Trigger a refresh of the therapists page data if it's loaded
     window.dispatchEvent(new CustomEvent('mindcare-therapist-rejected', { detail: { therapistId: serviceToReject?.therapistId } }));
+  };
+
+  const getIconComponent = (iconName: string) => {
+    const icons: any = {
+      Users,
+      CheckCircle,
+      DollarSign,
+      Play: Clock,
+      UserPlus: Users,
+      Activity: BarChart3
+    };
+    return icons[iconName] || BarChart3;
   };
 
   return (
@@ -384,7 +399,9 @@ function AdminDashboard() {
                 Recent Activities
               </h3>
               <div className="space-y-4">
-                {recentActivities.map((activity) => (
+                {recentActivity.map((activity) => {
+                  const IconComponent = getIconComponent(activity.icon);
+                  return (
                   <div
                     key={activity.id}
                     className={`flex items-start space-x-3 p-3 rounded-lg ${
@@ -392,15 +409,17 @@ function AdminDashboard() {
                     }`}
                   >
                     <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
-                      activity.type === 'user_registration' ? 'bg-blue-100' :
-                      activity.type === 'therapist_approved' ? 'bg-green-100' :
-                      activity.type === 'payment_processed' ? 'bg-purple-100' :
+                      activity.type.includes('user') ? 'bg-blue-100' :
+                      activity.type.includes('therapist') ? 'bg-green-100' :
+                      activity.type.includes('payment') ? 'bg-purple-100' :
+                      activity.type.includes('session') ? 'bg-teal-100' :
                       'bg-orange-100'
                     }`}>
-                      <activity.icon className={`w-4 h-4 ${
-                        activity.type === 'user_registration' ? 'text-blue-600' :
-                        activity.type === 'therapist_approved' ? 'text-green-600' :
-                        activity.type === 'payment_processed' ? 'text-purple-600' :
+                      <IconComponent className={`w-4 h-4 ${
+                        activity.type.includes('user') ? 'text-blue-600' :
+                        activity.type.includes('therapist') ? 'text-green-600' :
+                        activity.type.includes('payment') ? 'text-purple-600' :
+                        activity.type.includes('session') ? 'text-teal-600' :
                         'text-orange-600'
                       }`} />
                     </div>
@@ -417,7 +436,8 @@ function AdminDashboard() {
                       </p>
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             </motion.div>
           </div>

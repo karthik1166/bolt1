@@ -9,6 +9,7 @@ import {
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
 import toast from 'react-hot-toast';
+import { trackSessionComplete } from '../utils/analyticsManager';
 
 function VideoSessionPage() {
   const { sessionId } = useParams();
@@ -88,6 +89,17 @@ function VideoSessionPage() {
       booking.id === sessionId ? { ...booking, status: 'completed', sessionDuration: sessionTime } : booking
     );
     localStorage.setItem('mindcare_bookings', JSON.stringify(updatedBookings));
+    
+    // Track session completion
+    if (sessionData) {
+      trackSessionComplete({
+        patientId: sessionData.patientId,
+        therapistId: sessionData.therapistId,
+        sessionType: sessionData.sessionType || 'video',
+        duration: sessionTime,
+        rating: 5 // Default rating
+      });
+    }
     
     toast.success('Session ended successfully!');
     navigate('/dashboard');

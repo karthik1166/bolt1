@@ -8,6 +8,7 @@ import {
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
 import toast from 'react-hot-toast';
+import { trackTherapistRegistration } from '../utils/analyticsManager';
 
 interface TherapistService {
   id: string;
@@ -123,6 +124,15 @@ function ListServicePage() {
     
     setExistingService(newService);
     setIsEditing(false);
+    
+    // Track therapist service submission for analytics
+    if (!existingService) {
+      trackTherapistRegistration({
+        therapistId: user?.id || '',
+        therapistName: user?.name || '',
+        specialization: newService.specialization
+      });
+    }
     
     toast.success(existingService ? 'Service updated! Awaiting admin approval.' : 'Service submitted! Awaiting admin approval.');
   };

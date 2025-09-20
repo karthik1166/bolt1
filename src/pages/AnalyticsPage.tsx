@@ -12,86 +12,123 @@ import {
 } from 'recharts';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
+import { 
+  getAnalytics, updateAnalyticsFromCurrentData, generateTimeSeriesData
+} from '../utils/analyticsManager';
 
 function AnalyticsPage() {
   const { user } = useAuth();
   const { theme } = useTheme();
   const [selectedPeriod, setSelectedPeriod] = useState('month');
   const [selectedMetric, setSelectedMetric] = useState('users');
+  const [analytics, setAnalytics] = useState<any>(null);
+  const [timeSeriesData, setTimeSeriesData] = useState<any[]>([]);
 
-  // Mock analytics data
-  const userGrowthData = [
-    { month: 'Jan', users: 1200, therapists: 45, sessions: 890 },
-    { month: 'Feb', users: 1350, therapists: 52, sessions: 1020 },
-    { month: 'Mar', users: 1580, therapists: 58, sessions: 1180 },
-    { month: 'Apr', users: 1820, therapists: 65, sessions: 1350 },
-    { month: 'May', users: 2100, therapists: 72, sessions: 1580 },
-    { month: 'Jun', users: 2450, therapists: 78, sessions: 1820 }
-  ];
-
-  const revenueData = [
-    { month: 'Jan', revenue: 45000, subscriptions: 1200, sessions: 890 },
-    { month: 'Feb', revenue: 52000, subscriptions: 1350, sessions: 1020 },
-    { month: 'Mar', revenue: 58000, subscriptions: 1580, sessions: 1180 },
-    { month: 'Apr', revenue: 65000, subscriptions: 1820, sessions: 1350 },
-    { month: 'May', revenue: 72000, subscriptions: 2100, sessions: 1580 },
-    { month: 'Jun', revenue: 78000, subscriptions: 2450, sessions: 1820 }
-  ];
+  useEffect(() => {
+    // Load initial analytics data
+    const initialAnalytics = updateAnalyticsFromCurrentData();
+    setAnalytics(initialAnalytics);
+    
+    // Generate time series data
+    const timeData = generateTimeSeriesData();
+    setTimeSeriesData(timeData);
+    
+    // Set up interval to refresh data
+    const interval = setInterval(() => {
+      const updatedAnalytics = updateAnalyticsFromCurrentData();
+      setAnalytics(updatedAnalytics);
+      setTimeSeriesData(generateTimeSeriesData());
+    }, 10000); // Update every 10 seconds
+    
+    // Listen for analytics updates
+    const handleAnalyticsUpdate = () => {
+      const updatedAnalytics = updateAnalyticsFromCurrentData();
+      setAnalytics(updatedAnalytics);
+      setTimeSeriesData(generateTimeSeriesData());
+    };
+    
+    window.addEventListener('mindcare-analytics-updated', handleAnalyticsUpdate);
+    
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('mindcare-analytics-updated', handleAnalyticsUpdate);
+    };
+  }, []);
 
   const userTypeDistribution = [
-    { name: 'Patients', value: 2450, color: '#3B82F6' },
-    { name: 'Therapists', value: 78, color: '#10B981' },
+    { name: 'Patients', value: analytics?.users.totalUsers - analytics?.therapists.totalTherapists || 0, color: '#3B82F6' },
+    { name: 'Therapists', value: analytics?.therapists.totalTherapists || 0, color: '#10B981' },
     { name: 'Admins', value: 5, color: '#8B5CF6' }
   ];
 
   const sessionTypeData = [
-    { type: 'Video Sessions', count: 1200, percentage: 65 },
-    { type: 'Phone Sessions', count: 400, percentage: 22 },
-    { type: 'In-Person', count: 220, percentage: 13 }
+    { type: 'Video Sessions', count: analytics?.sessions.totalSessions * 0.65 || 0, percentage: 65 },
+    { type: 'Phone Sessions', count: analytics?.sessions.totalSessions * 0.22 || 0, percentage: 22 },
+    { type: 'In-Person', count: analytics?.sessions.totalSessions * 0.13 || 0, percentage: 13 }
   ];
 
-  const topTherapists = [
-    { name: 'Dr. Sarah Johnson', sessions: 156, rating: 4.9, revenue: 18720 },
-    { name: 'Dr. Michael Chen', sessions: 142, rating: 4.8, revenue: 21300 },
-    { name: 'Dr. Emily Rodriguez', sessions: 138, rating: 4.7, revenue: 17940 },
-    { name: 'Dr. James Wilson', sessions: 125, rating: 4.9, revenue: 17500 },
-    { name: 'Dr. Lisa Brown', sessions: 118, rating: 4.6, revenue: 14160 }
-  ];
+  // Generate top therapists from real data
+  const getTopTherapists = () => {
+    const bookings = JSON.parse(localStorage.getItem('mindcare_bookings') || '[]');
+    const therapistStats: any = {};
+    
+    bookings.forEach((booking: any) => {
+      if (booking.status === 'completed') {
+        const therapistName = booking.therapistName;
+        if (!therapistStats[therapistName]) {
+          therapistStats[therapistName] = {
+            name: therapistName,
+            sessions: 0,
+            rating: 4.8,
+            revenue: 0
+          };
+        }
+        therapistStats[therapistName].sessions += 1;
+        therapistStats[therapistName].revenue += parseFloat(booking.amount?.replace('$', '') || '0');
+      }
+    });
+    
+    return Object.values(therapistStats)
+      .sort((a: any, b: any) => b.sessions - a.sessions)
+      .slice(0, 5);
+  };
+  
+  const topTherapists = getTopTherapists();
 
-  const stats = [
+  const stats = analytics ? [
     {
       title: 'Total Users',
-      value: '2,533',
-      change: '+12.5%',
+      value: analytics.users.totalUsers.toLocaleString(),
+      change: `+${analytics.users.userGrowthRate}%`,
       trend: 'up',
       icon: Users,
       color: 'from-blue-500 to-cyan-500'
     },
     {
       title: 'Monthly Revenue',
-      value: '$78,000',
-      change: '+18.2%',
+      value: `$${analytics.revenue.monthlyRevenue.toLocaleString()}`,
+      change: `+${analytics.revenue.revenueGrowthRate}%`,
       trend: 'up',
       icon: DollarSign,
       color: 'from-green-500 to-teal-500'
     },
     {
       title: 'Active Sessions',
-      value: '1,820',
-      change: '+15.3%',
+      value: analytics.sessions.activeSessions.toString(),
+      change: `+${analytics.sessions.sessionCompletionRate.toFixed(1)}%`,
       trend: 'up',
       icon: Activity,
       color: 'from-purple-500 to-pink-500'
     },
     {
-      title: 'Platform Growth',
-      value: '24.8%',
-      change: '+3.2%',
+      title: 'Total Sessions',
+      value: analytics.sessions.totalSessions.toString(),
+      change: `${analytics.sessions.completedSessions} completed`,
       trend: 'up',
       icon: TrendingUp,
       color: 'from-orange-500 to-red-500'
     }
-  ];
+  ] : [];
 
   return (
     <div className={`h-screen flex flex-col ${
@@ -207,7 +244,11 @@ function AnalyticsPage() {
               User Growth Trends
             </h3>
             <ResponsiveContainer width="100%" height={250}>
-              <LineChart data={userGrowthData}>
+              <LineChart data={timeSeriesData.slice(-6).map((data, index) => ({
+                month: new Date(data.date).toLocaleDateString('en-US', { month: 'short' }),
+                users: data.users,
+                sessions: data.sessions
+              }))}>
                 <CartesianGrid strokeDasharray="3 3" stroke={theme === 'dark' ? '#374151' : '#E5E7EB'} />
                 <XAxis 
                   dataKey="month" 
@@ -236,10 +277,10 @@ function AnalyticsPage() {
                 />
                 <Line 
                   type="monotone" 
-                  dataKey="therapists" 
+                  dataKey="sessions" 
                   stroke="#10B981" 
                   strokeWidth={2}
-                  name="Therapists"
+                  name="Sessions"
                 />
               </LineChart>
             </ResponsiveContainer>
@@ -260,7 +301,10 @@ function AnalyticsPage() {
               Revenue Analytics
             </h3>
             <ResponsiveContainer width="100%" height={250}>
-              <AreaChart data={revenueData}>
+              <AreaChart data={timeSeriesData.slice(-6).map((data, index) => ({
+                month: new Date(data.date).toLocaleDateString('en-US', { month: 'short' }),
+                revenue: data.revenue
+              }))}>
                 <CartesianGrid strokeDasharray="3 3" stroke={theme === 'dark' ? '#374151' : '#E5E7EB'} />
                 <XAxis 
                   dataKey="month" 
